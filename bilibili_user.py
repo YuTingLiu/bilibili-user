@@ -3,13 +3,12 @@
 import requests
 import json
 import random
-import pymysql
 import sys
 import datetime
 import time
 from imp import reload
 from multiprocessing.dummy import Pool as ThreadPool
-
+import pandas as pd
 
 def datetime_to_timestamp_in_milliseconds(d):
     def current_milli_time(): return int(round(time.time() * 1000))
@@ -45,49 +44,59 @@ head = {
     'Accept-Language': 'zh-CN,zh;q=0.8,en;q=0.6,ja;q=0.4',
     'Accept': 'application/json, text/javascript, */*; q=0.01',
 }
-proxies = {
-    'http': 'http://61.155.164.108:3128',
-    'http': 'http://116.199.115.79:80',
-    'http': 'http://42.245.252.35:80',
-    'http': 'http://106.14.51.145:8118',
-    'http': 'http://116.199.115.78:80',
-    'http': 'http://123.147.165.143:8080',
-    'http': 'http://58.62.86.216:9999',
-    'http': 'http://202.201.3.121:3128',
-    'http': 'http://119.29.201.134:808',
-    'http': 'http://61.155.164.112:3128',
-    'http': 'http://123.57.76.102:80',
-    'http': 'http://116.199.115.78:80',
-}
-time1 = time.time()
+# proxies = {
+#     'http': 'http://61.155.164.108:3128',
+#     'http': 'http://116.199.115.79:80',
+#     'http': 'http://42.245.252.35:80',
+#     'http': 'http://106.14.51.145:8118',
+#     'http': 'http://116.199.115.78:80',
+#     'http': 'http://123.147.165.143:8080',
+#     'http': 'http://58.62.86.216:9999',
+#     'http': 'http://202.201.3.121:3128',
+#     'http': 'http://119.29.201.134:808',
+#     'http': 'http://61.155.164.112:3128',
+# }
+with open("ip_pool.json",'r') as f:
+    ip_list = json.load(f)
+def get_random_proxies(protocol='http'):
+    '''
+    Get a random proxies for requests.get.
+    '''
+    proxy_list = ip_list.get(protocol)
+    random_proxies = random.choice(proxy_list)
+    return random_proxies
 
-for m in range(99, 101):  # 26 ,1000
+time1 = time.time()
+datas = []
+for m in range(0, 1999999):  # 26 ,1000   199999999
     urls = []
     for i in range(m * 100, (m + 1) * 100):
         url = 'https://space.bilibili.com/' + str(i)
         urls.append(url)
 
-
+    print('urls len',len(urls))
     def getsource(url):
-        payload = {
-            '_': datetime_to_timestamp_in_milliseconds(datetime.datetime.now()),
-            'mid': url.replace('https://space.bilibili.com/', '')
-        }
-        ua = random.choice(uas)
-        head = {
-            'User-Agent': ua,
-            'Referer': 'https://space.bilibili.com/' + str(i) + '?from=search&seid=' + str(random.randint(10000, 50000))
-        }
-        jscontent = requests \
-            .session() \
-            .post('http://space.bilibili.com/ajax/member/GetInfo',
-                  headers=head,
-                  data=payload,
-                  proxies=proxies) \
-            .text
-        time2 = time.time()
         try:
+            payload = {
+                '_': datetime_to_timestamp_in_milliseconds(datetime.datetime.now()),
+                'mid': url.replace('https://space.bilibili.com/', '')
+            }
+            ua = random.choice(uas)
+            head = {
+                'User-Agent': ua,
+                'Referer': 'https://space.bilibili.com/' + str(i) + '?from=search&seid=' + str(random.randint(10000, 50000))
+            }
+            jscontent = requests \
+                .session() \
+                .post('http://space.bilibili.com/ajax/member/GetInfo',
+                      headers=head,
+                      data=payload,
+                      proxies=get_random_proxies()) \
+                .text
+            time2 = time.time()
             jsDict = json.loads(jscontent)
+            print("返回数据")
+            print(jsDict)
             statusJson = jsDict['status'] if 'status' in jsDict.keys() else False
             if statusJson == True:
                 if 'data' in jsDict.keys():
@@ -106,7 +115,7 @@ for m in range(99, 101):  # 26 ,1000
                     sign = jsData['sign']
                     level = jsData['level_info']['current_level']
                     exp = jsData['level_info']['current_exp']
-                    print("Succeed: " + mid + "\t" + str(time2 - time1))
+                    print("Succeed: " + mid + "\t" + str(time2 - time1) + " " + str(len(datas)))
                     try:
                         res = requests.get(
                             'https://api.bilibili.com/x/space/navnum?mid=' + str(mid) + '&jsonp=jsonp').text
@@ -119,27 +128,18 @@ for m in range(99, 101):  # 26 ,1000
                 else:
                     print('no data now')
                 try:
-                    conn = pymysql.connect(
-                        host='localhost', user='root', passwd='123456', db='bilibili', charset='utf8')
-                    cur = conn.cursor()
-                    cur.execute('INSERT INTO bilibili_user_info(mid, name, sex, face, coins, spacesta, \
-                    birthday, place, description, article, following, fans, playnum, sign, level, exp) \
-                    VALUES ("%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s")'
-                                % (
+                    datas.append([
                                     mid, name, sex, face, coins, spacesta,
                                     birthday, place, description, article,
-                                    following, fans, playnum, sign, level, exp
-                                ))
-                    conn.commit()
-                except Exception:
-                    print("MySQL Error")
-            else:
-                print("Error: " + url)
-        except ValueError:
+                                    following, fans, playnum, sign, level, exp])
+                except:
+                    print('datas append error')
+        except:
+            print("error ",url)
             pass
 
 
-    pool = ThreadPool(1)
+    pool = ThreadPool(4)
     try:
         results = pool.map(getsource, urls)
     except Exception:
@@ -147,10 +147,14 @@ for m in range(99, 101):  # 26 ,1000
         pool.close()
         pool.join()
         time.sleep(11)
-        pool = ThreadPool(1)
+        pool = ThreadPool(4)
         results = pool.map(getsource, urls)
-
     time.sleep(30)
 
 pool.close()
 pool.join()
+
+print(len(datas))
+df = pd.DataFrame(datas)
+print(df.head())
+df.to_csv("billibili.data.csv")
